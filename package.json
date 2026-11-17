@@ -1,0 +1,35 @@
+{
+  "name": "dsh-workspace-sidebar",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "切换对话时自动显示该工作区的文件目录，记住右侧栏宽度，支持把文件拖进输入框变成 @ 引用，并按最近对话排序左侧工作区。",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-api-workspace-controller"
+      ]
+    }
+  }
+}

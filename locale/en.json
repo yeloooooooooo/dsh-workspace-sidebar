@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Workspace sidebar",
+    "description": "Ties the right sidebar's file tree to the workspace of the conversation you are reading, in four parts. First, opening a conversation shows that workspace's file tree in the right sidebar automatically; once you close it, that conversation stays closed for the rest of the page load. Second, the right sidebar keeps the width you drag it to, across reloads and restarts; until you drag it, it opens at about 26% of the viewport. Third, dragging a file or folder from the tree onto the composer inserts it as an @ reference. Fourth, workspaces reorder by the recency of their conversations, and each workspace row's ... menu offers Pin workspace to keep one above the rest regardless of time. Windows narrower than 768 pixels do not open the sidebar automatically, so the conversation is never covered. The first two are adjustable in Settings → General; the last two work as soon as the plugin is enabled. The plugin makes no network requests and stores its data only in this browser's local storage."
+  }
+}
