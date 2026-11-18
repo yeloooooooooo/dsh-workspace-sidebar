@@ -37,10 +37,16 @@
 ### 一、从 npm 安装（推荐）
 
 ```bash
-dsh plugin install emoji-workspace-sidebar
+dsh plugin --profile web add emoji-workspace-sidebar
 ```
 
-或直接使用包管理器：
+桌面端 profile 请把 `web` 换成 `desktop`：
+
+```bash
+dsh plugin --profile desktop add emoji-workspace-sidebar
+```
+
+也可以在插件的图形界面中点击「添加插件」，在「包名或地址」里填写包名。或直接使用包管理器：
 
 ```bash
 pnpm add emoji-workspace-sidebar
