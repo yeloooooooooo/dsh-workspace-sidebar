@@ -525,19 +525,19 @@ ${COMPOSER}.${OVER_CLASS} { outline-color: var(--dsw-alias-brand-primary); }
      * @param props - unused; the menu renderer passes the action's icon face.
      */
     function PinIcon() {
-      // Mirrors the shipped `IconPinFillRegular` that a pinned conversation row
-      // draws for itself, so the workspace menu and the session rows read as the
-      // same gesture. Filled, because that is what the shipped marker is.
+      // A pushpin: rounded cap, tapered body, and a short needle. Chosen over a
+      // square-headed pin because at menu size the round cap plus the waist is
+      // what makes the shape read as a pin rather than a funnel.
       return h('svg', {
         width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none',
         xmlns: 'http://www.w3.org/2000/svg', 'aria-hidden': 'true', focusable: 'false',
       }, h('path', {
-        key: 'pin',
-        d: 'M9.7 1.5a.6.6 0 0 1 .85 0l3.95 3.95a.6.6 0 0 1-.42 1.02h-1.3l-2.2 2.2-.3 2.2a.6.6 0 0 1-1.02.42L5.2 6.74a.6.6 0 0 1 .42-1.02l2.2-.3 2.2-2.2V1.92a.6.6 0 0 1 .18-.42Z',
+        key: 'body',
+        d: 'M6.1 2.6h3.8a1 1 0 0 1 0 2h-.3c0 1.5.5 2.9 1.5 4l.4.5a.8.8 0 0 1-.6 1.3H5.1a.8.8 0 0 1-.6-1.3l.4-.5c1-1.1 1.5-2.5 1.5-4h-.3a1 1 0 0 1 0-2Z',
         fill: 'currentColor',
       }), h('path', {
         key: 'needle',
-        d: 'M5.6 9.1 2.2 12.5',
+        d: 'M8 10.4v3.2',
         stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round',
       }));
     }
