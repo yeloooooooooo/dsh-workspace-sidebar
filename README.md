@@ -1,5 +1,7 @@
 # 工作区侧栏（emoji-workspace-sidebar）
 
+当前版本：1.3.2
+
 一个 DeepSeek Harness（以下简称 DSH）插件包。它把右侧栏文件树和左侧工作区列表的使用流程整理到一起，包含五项能力：切换对话时自动显示该对话工作区的文件目录、记住拖动后的右侧栏宽度、把文件树里的文件或文件夹拖进输入框变成 `@` 引用、按最近对话时间排列左侧工作区并支持手动置顶，以及在对话行显示状态表情并支持手动标记。
 
 五项能力共用一次启用、一份样式表和同一块设置区域。插件只包含一个包，不需要额外下载其他插件。
@@ -43,7 +45,7 @@ dsh plugin install emoji-workspace-sidebar
 pnpm add emoji-workspace-sidebar
 ```
 
-npm 包与 GitHub 仓库同步发布，包名即安装标识，不需要额外配置。
+包名即安装标识，不需要额外配置。每个版本同时发布到 npm 与 GitHub 标签，两者内容一致；如需核对，可用 `npm view emoji-workspace-sidebar version` 查看 npm 上的最新版本。
 
 ### 二、从 GitHub 安装
 
@@ -53,7 +55,7 @@ npm 包与 GitHub 仓库同步发布，包名即安装标识，不需要额外�
 https://github.com/yeloooooooooo/dsh-workspace-sidebar
 ```
 
-也可以填写 pnpm 支持的简写形式 `github:yeloooooooooo/dsh-workspace-sidebar`。需要指定版本时在末尾加上标签，例如 `github:yeloooooooooo/dsh-workspace-sidebar#v1.3.0`。此方式要求本机能访问 GitHub 并且已安装 Git；注意 npm 默认会改用 SSH 协议，若本机未配置 GitHub 的 SSH 密钥，请改用 pnpm，它走 HTTPS。
+也可以填写 pnpm 支持的简写形式 `github:yeloooooooooo/dsh-workspace-sidebar`。需要指定版本时在末尾加上标签，例如 `github:yeloooooooooo/dsh-workspace-sidebar#v1.3.2`。此方式要求本机能访问 GitHub 并且已安装 Git；注意 npm 默认会改用 SSH 协议，若本机未配置 GitHub 的 SSH 密钥，请改用 pnpm，它走 HTTPS。
 
 ### 三、从 Release 附件安装
 
