@@ -525,17 +525,20 @@ ${COMPOSER}.${OVER_CLASS} { outline-color: var(--dsw-alias-brand-primary); }
      * @param props - unused; the menu renderer passes the action's icon face.
      */
     function PinIcon() {
+      // Mirrors the shipped `IconPinFillRegular` that a pinned conversation row
+      // draws for itself, so the workspace menu and the session rows read as the
+      // same gesture. Filled, because that is what the shipped marker is.
       return h('svg', {
         width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none',
         xmlns: 'http://www.w3.org/2000/svg', 'aria-hidden': 'true', focusable: 'false',
       }, h('path', {
-        key: 'body',
-        d: 'M9.6 1.8 14.2 6.4l-1.7.6-2.5 2.5-.5 2.6-1.3 1.3-3.9-3.9 1.3-1.3 2.6-.5 2.5-2.5.6-1.7Z',
-        stroke: 'currentColor', strokeWidth: 1.2, strokeLinejoin: 'round',
+        key: 'pin',
+        d: 'M9.7 1.5a.6.6 0 0 1 .85 0l3.95 3.95a.6.6 0 0 1-.42 1.02h-1.3l-2.2 2.2-.3 2.2a.6.6 0 0 1-1.02.42L5.2 6.74a.6.6 0 0 1 .42-1.02l2.2-.3 2.2-2.2V1.92a.6.6 0 0 1 .18-.42Z',
+        fill: 'currentColor',
       }), h('path', {
-        key: 'shaft',
-        d: 'M5.4 9.1 2 12.5',
-        stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round',
+        key: 'needle',
+        d: 'M5.6 9.1 2.2 12.5',
+        stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round',
       }));
     }
 
