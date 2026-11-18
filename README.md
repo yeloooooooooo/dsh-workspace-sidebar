@@ -1,8 +1,8 @@
-# 工作区侧栏（dsh-workspace-sidebar）
+# 工作区侧栏（emoji-workspace-sidebar）
 
-一个 DeepSeek Harness（以下简称 DSH）插件包。它把右侧栏文件树和左侧工作区列表的使用流程整理到一起，包含四项能力：切换对话时自动显示该对话工作区的文件目录、记住拖动后的右侧栏宽度、把文件树里的文件或文件夹拖进输入框变成 `@` 引用、按最近对话时间排列左侧工作区并支持手动置顶。
+一个 DeepSeek Harness（以下简称 DSH）插件包。它把右侧栏文件树和左侧工作区列表的使用流程整理到一起，包含五项能力：切换对话时自动显示该对话工作区的文件目录、记住拖动后的右侧栏宽度、把文件树里的文件或文件夹拖进输入框变成 `@` 引用、按最近对话时间排列左侧工作区并支持手动置顶，以及在对话行显示状态表情并支持手动标记。
 
-四项能力共用一次启用、一份样式表和同一块设置区域。插件只包含一个包，不需要额外下载其他插件。
+五项能力共用一次启用、一份样式表和同一块设置区域。插件只包含一个包，不需要额外下载其他插件。
 
 ## 目录
 
@@ -31,7 +31,21 @@
 
 插件是一个标准的 DSH 插件包，`package.json` 中的 `dsh.bundle.patch` 声明了装载补丁，`dsh.client` 声明了浏览器侧模块。安装方式有三种，任选一种即可。
 
-### 一、从 GitHub 安装
+### 一、从 npm 安装（推荐）
+
+```bash
+dsh plugin install emoji-workspace-sidebar
+```
+
+或直接使用包管理器：
+
+```bash
+pnpm add emoji-workspace-sidebar
+```
+
+npm 包与 GitHub 仓库同步发布，包名即安装标识，不需要额外配置。
+
+### 二、从 GitHub 安装
 
 在 DSH 的「插件」页面点击「添加插件」，在「包名或地址」中输入仓库地址：
 
@@ -39,9 +53,13 @@
 https://github.com/yeloooooooooo/dsh-workspace-sidebar
 ```
 
-也可以填写 pnpm 支持的简写形式 `github:yeloooooooooo/dsh-workspace-sidebar`。确认后由插件管理器完成下载、安装和启用。此方式要求本机能访问 GitHub，并且已安装 Git。
+也可以填写 pnpm 支持的简写形式 `github:yeloooooooooo/dsh-workspace-sidebar`。需要指定版本时在末尾加上标签，例如 `github:yeloooooooooo/dsh-workspace-sidebar#v1.3.0`。此方式要求本机能访问 GitHub 并且已安装 Git；注意 npm 默认会改用 SSH 协议，若本机未配置 GitHub 的 SSH 密钥，请改用 pnpm，它走 HTTPS。
 
-### 二、从本地目录安装
+### 三、从 Release 附件安装
+
+在 [Releases](https://github.com/yeloooooooooo/dsh-workspace-sidebar/releases) 页面下载对应版本的 zip，解压后用本地目录方式安装（见下文）。
+
+### 四、从本地目录安装
 
 把仓库克隆或下载到本机任意位置，在「添加插件」中填写该目录的绝对路径，例如：
 
@@ -51,7 +69,7 @@ D:\插件\dsh-workspace-sidebar
 
 路径必须是绝对路径，相对路径会被拒绝。
 
-### 三、命令行安装
+### 五、命令行安装
 
 已配置 `dsh` 命令行时，可以执行：
 
@@ -59,7 +77,7 @@ D:\插件\dsh-workspace-sidebar
 dsh plugin install https://github.com/yeloooooooooo/dsh-workspace-sidebar
 ```
 
-三种方式都会把插件写入当前 profile 的依赖，并加入 `dsh.profile.bundles`。安装完成后建议重启 DSH，以确保浏览器侧模块加载的是新版本。
+以上方式都会把插件写入当前 profile 的依赖，并加入 `dsh.profile.bundles`。安装完成后建议重启 DSH，以确保浏览器侧模块加载的是新版本。
 
 ### 验证安装
 
@@ -186,10 +204,10 @@ DSH 框架把右栏宽度保存在运行期的布局 store（`layoutInfo.rightba
 ## 兼容性与依赖
 
 - 依赖随 DSH 附带的右侧栏实现（`@deepseek-ai/dsh-client-ui-sidebar-right`）、框架（`@deepseek-ai/dsh-client-ui-layout`）、输入框（`@deepseek-ai/dsh-client-ui-conversation`）与工作区控制器（`@deepseek-ai/dsh-api-workspace-controller`）。这些包由宿主提供，插件不自行携带，也不引入额外依赖。
-- 四项能力彼此独立。某一项的前置服务缺席时，其余各项照常工作：工作区排序在缺少 `workspaces` 服务时静默跳过，宽度记忆找不到布局 store 时静默跳过。
+- 五项能力彼此独立。某一项的前置服务缺席时，其余各项照常工作：工作区排序在缺少 `workspaces` 服务时静默跳过，宽度记忆找不到布局 store 时静默跳过，状态表情在缺少对话状态源时不挂载。
 - 与侧栏实现解耦。只要「文件」页存在，无论由官方文件页还是接管该页类型的插件渲染，自动显示都成立。
 - 已在 DSH 0.2.2-rc.3（Windows 桌面端，Chromium 内核）上逐项实测。
-- 停用或卸载插件后，四项行为一起消失；已经打开的右侧栏页面保持原样，已经写入的工作区顺序不会回滚。
+- 停用或卸载插件后，五项行为一起消失；已经打开的右侧栏页面保持原样，已经写入的工作区顺序不会回滚。
 
 ## 已知限制
 
@@ -205,7 +223,7 @@ DSH 框架把右栏宽度保存在运行期的布局 store（`layoutInfo.rightba
 
 插件没有构建步骤。`client.js` 就是浏览器直接加载的产物，改动后刷新页面即可生效；DSH 的客户端模块热更新通道开启时无需刷新。
 
-仓库自带一份离线测试脚手架，用假的右侧栏、假的布局 store、假的 `document`、`React`、Cordis 与假 `localStorage` 启动一次插件，覆盖自动打开、宽度记忆、拖拽引用与置顶排序四项能力：
+仓库自带一份离线测试脚手架，用假的右侧栏、假的布局 store、假的 `document`、`React`、Cordis 与假 `localStorage` 启动一次插件，覆盖自动打开、宽度记忆、拖拽引用、置顶排序与状态表情标记：
 
 ```bash
 node tests/harness.mjs
@@ -213,7 +231,7 @@ node tests/harness.mjs
 
 测试脚手架不属于插件包，`package.json` 的 `files` 字段不会把它打包进去。
 
-四项能力的界面行为已在 DSH 0.2.2-rc.3 上实测：打开有工作目录的对话后右侧栏自动展开并停在文件页；700 像素宽窗口下新建会话不会强行打开右侧栏；从 374 像素拖到 504 像素后刷新仍为 504 像素；拖到输入框时出现描边，松手后引用插入草稿；置顶后该工作区移到最前并显示图钉，取消置顶后回到按时间排序的顺序。
+各项能力的界面行为已在 DSH 0.2.2-rc.3 上实测：打开有工作目录的对话后右侧栏自动展开并停在文件页；700 像素宽窗口下新建会话不会强行打开右侧栏；从 374 像素拖到 504 像素后刷新仍为 504 像素；拖到输入框时出现描边，松手后引用插入草稿；置顶后该工作区移到最前并显示图钉，取消置顶后回到按时间排序的顺序。
 
 ## 许可证
 

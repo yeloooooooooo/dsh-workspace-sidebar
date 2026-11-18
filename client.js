@@ -1,5 +1,5 @@
 /**
- * Client half of dsh-workspace-sidebar.
+ * Client half of emoji-workspace-sidebar.
  *
  * One bundle keeps the right Sidebar's workspace file tree usable end to end.
  * It carries four capabilities that share one activation, one stylesheet, and
@@ -49,7 +49,7 @@
  * boot with no error at all, so the frame is only *observed* here.
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-workspace-sidebar',
+  id: 'emoji-workspace-sidebar',
   factory(require) {
     const React = require('react');
     const h = React.createElement;

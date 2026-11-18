@@ -1,5 +1,5 @@
 /**
- * Offline harness for the dsh-workspace-sidebar client half: one boot
+ * Offline harness for the emoji-workspace-sidebar client half: one boot
  * of the bundle against a fake right Sidebar, a fake layout store, a fake
  * document/React/Cordis and a fake localStorage, asserting all four
  * capabilities it now carries — the automatic open, the remembered width, the
@@ -322,7 +322,7 @@ const walk = (node, out = []) => {
 
 try {
   new Function('window', 'module', `${source}\nreturn window.__ModuleLoader__`)(globalWindow, {})
-  assert.equal(registration.id, 'dsh-workspace-sidebar')
+  assert.equal(registration.id, 'emoji-workspace-sidebar')
 
   const exported = registration.factory(() => React)
   assert.deepEqual(exported.inject, ['slots'])
