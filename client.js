@@ -136,6 +136,33 @@ window.__ModuleLoader__.load({
     const PIN_KEY = 'dsh.workspace-order-manual-pins.v1';
 
     /* ------------------------------------------------------------------ *
+     * 5. Session-row mood faces                                            *
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Whether a conversation row shows a mood face instead of the shipped
+     * state dot. Browser-local; the faces are cosmetic, so a profile that
+     * turns them off gets the shipped dots back unchanged.
+     */
+    const MOOD_KEY = 'dsh.session-row-mood.v1';
+    /**
+     * How long one face holds before the cycle advances. A face that changed on
+     * every render would strobe; one that never changed would read as a static
+     * icon, so a running row cycles slowly enough to look alive.
+     */
+    const MOOD_FRAME_MS = 2_200;
+    /**
+     * Browser-local conversation bookmarks set from the row menu: one face per
+     * conversation, chosen by the reader. Independent of the live state, so a
+     * mark survives while the conversation runs or idles.
+     */
+    const MARK_KEY = 'dsh.session-row-marks.v1';
+    /** The faces a reader can set as a mark, in menu order. */
+    const MOOD_MARK_KEYS = ['calm', 'bubbles', 'rays', 'sleep', 'fire', 'hearts', 'tears'];
+    const MARK_ICON_KEY = 'workspace-sidebar.mark';
+    const MARK_CLEAR_ICON_KEY = 'workspace-sidebar.mark-clear';
+
+    /* ------------------------------------------------------------------ *
      * Copy                                                                 *
      * ------------------------------------------------------------------ */
 
@@ -152,6 +179,27 @@ window.__ModuleLoader__.load({
       'width.unset': '尚未调整，使用默认宽度',
       'pin.pin': '置顶工作区',
       'pin.unpin': '取消置顶',
+      'mood.calm.label': '平静',
+      'mood.bubbles.label': '活跃',
+      'mood.rays.label': '有动静',
+      'mood.sleep.label': '休眠',
+      'mood.fire.label': '正在处理',
+      'mood.hearts.label': '已完成',
+      'mood.tears.label': '出错了',
+      'mood.title': '对话状态表情',
+      'mood.description':
+        '把侧边栏对话行的状态点换成一个小表情：思考中、正在忙、等你回复、已完成、空闲。关闭后恢复原来的状态点。',
+      'mood.switch': '在对话行显示状态表情',
+      'mark.apply': '标记表情',
+      'mark.change': '更改标记表情',
+      'mark.clear': '清除标记',
+      'mark.calm': '平静',
+      'mark.bubbles': '活跃',
+      'mark.rays': '有动静',
+      'mark.sleep': '休眠',
+      'mark.fire': '正在处理',
+      'mark.hearts': '已完成',
+      'mark.tears': '出错了',
     };
     const EN = {
       'open.title': 'Show workspace files when a conversation opens',
@@ -165,6 +213,27 @@ window.__ModuleLoader__.load({
       'width.unset': 'Not adjusted yet; using the default width',
       'pin.pin': 'Pin workspace to top',
       'pin.unpin': 'Unpin workspace',
+      'mood.calm.label': 'Calm',
+      'mood.bubbles.label': 'Chatty',
+      'mood.rays.label': 'Needs you',
+      'mood.sleep.label': 'Resting',
+      'mood.fire.label': 'Working',
+      'mood.hearts.label': 'Finished',
+      'mood.tears.label': 'Went wrong',
+      'mood.title': 'Conversation mood faces',
+      'mood.description':
+        'Replace the sidebar state dot with a small face: thinking, working, waiting for you, finished, or idle. Turn it off to get the shipped dots back.',
+      'mood.switch': 'Show mood faces on conversation rows',
+      'mark.apply': 'Mark with a face',
+      'mark.change': 'Change the mark',
+      'mark.clear': 'Clear the mark',
+      'mark.calm': 'Calm',
+      'mark.bubbles': 'Chatty',
+      'mark.rays': 'Needs you',
+      'mark.sleep': 'Resting',
+      'mark.fire': 'Working',
+      'mark.hearts': 'Finished',
+      'mark.tears': 'Went wrong',
     };
 
     const CSS = `
@@ -198,6 +267,8 @@ ${COMPOSER}.${OVER_CLASS} { outline-color: var(--dsw-alias-brand-primary); }
   background: var(--dsw-alias-bg-overlay);
   border: 1px solid var(--dsw-alias-border-l2);
 }
+.wsm-mood-cell{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:none;line-height:0}
+.wsm-mood{display:block;overflow:visible}
 `;
 
     /* ------------------------------------------------------------------ *
@@ -468,6 +539,310 @@ ${COMPOSER}.${OVER_CLASS} { outline-color: var(--dsw-alias-brand-primary); }
       }));
     }
 
+    /* ------------------------------------------------------------------ *
+     * 5. Session-row mood faces                                            *
+     * ------------------------------------------------------------------ */
+
+    // Faces are drawn here rather than imported: a Client plugin must not pull
+    // a Harness Client package for artwork, and third-party sticker sets carry
+    // licences this bundle cannot redistribute. Five faces cover the states a
+    // row actually reports — mid-thought, concentrating, waiting on the
+    // reader, just finished, and done for now.
+    //
+    // Each face is a 16x16 glyph painted with `currentColor` so it inherits the
+    // row's own muted label colour, with one accent fill that follows the
+    // state's meaning instead of the theme's greys.
+
+    /**
+     * The five faces, each a complete `<svg>` child list.
+     *
+     * `thinking` looks up and away — mid-thought, not mid-task. `working` looks
+     * straight ahead behind level lids with a pressed mouth and a green spark:
+     * concentrating. The two differ in gaze direction, not just colour, because
+     * a running row is what alternates between them. `waiting` is wide-eyed with
+     * an open mouth, because that row wants an answer. `done` is a closed-eye
+     * smile with a bright accent. An idle conversation draws no face at all.
+     */
+    // The whale-tail faces, cropped from the reader-supplied sprite sheet.
+    // Inlined as data URLs rather than fetched: a Client bundle has no asset
+    // route in this build, and a network round trip per row would be worse
+    // than the ~17 KB these seven 40px tiles cost together.
+    const MOOD_IMAGES = {
+      calm: 'data:image/png;base64,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',
+      bubbles: 'data:image/png;base64,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',
+      rays: 'data:image/png;base64,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',
+      sleep: 'data:image/png;base64,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',
+      fire: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAAGwUlEQVR42u2YW4yV1RXHf2vv73znzLnMMEy56EC5FRTKwBBiTQypYNs0tChWfGiI+IAlvdtKuDMM90vLxdQ0sQ+aGvtCTBPbvtT2AaMFbdoQJFRNW4cpdxlA5nIu35zz7b36cCwTMgNiZyA+zP917az13yvrv9baG4YxjGHcWWjXRY0fmaLxk806FP5kqIjF35iiYhykaiCbxL70jnxmCMaLp6mviTE+QHo99vcfDNnFzaDJfWW8EgqJpgTYGBpyQ1oygyLol8xU6jPYBw2aU2IHxOU++9JZ6ttP6B0j6B6dfi1Y/EC9+lIB02xQ79FZWRir4Cq43nz1XBDinllyZzLolt6vWpPsK95MDQQB4hw05ZDPN2GaS8hDDll+38eK7samQtyyZo1LRb1tBCsnjij5PEYjCm3Hq4ESiaqxPkADj5MEUjsKl1BcJiJ+5F7VnEODPBJFBDXp/0s4wS1JffuPUQWZFlOz6tvV+ooheNjh4wjuvh87/lnoXIT21iKnL+IvOMwDKVRAnSe2czQ4eExuSwYlihADTAnx98b4Jfeofcyg42qROXfBhN0oRbTrCsYKfHUMZp6FRoOmy+AtvrtwQ/8dMyfpoDJIKoSojHqPPPEFePccpDLV602dj0imem7en5CgUfzfFiiPzkBsCH9/Fwk8tjY9oOsz0+7Sj3pKgxTJb47gPGinR2wNsuSvUBei0oE2rAYMqgZkBM71qM49iE5sAQQB4jdL2IP9J8vJSWM0X3GkapO0z52ivpjXGxJ0J9vUnWxX/2FHv0M2mZE4lcdEgtpGVB2Vyx2YZA0iAcamRQRUwdqcSOXfiO/EO0/cWUJG2oH7qBUmzhrLxBOnRNvOcPmLjTcedX7jDtUwQBxoKsRuWDlgQcfFK+o0STKT7Wf3rqCgGJsVHx1WrYSQmY41OQFoyTXoaCljjdCbSvK9M+dIJ0IBONs8WaNCxKTjH2DTfYoXALd5t8q48ZgVTwiArtmsfst6bDolALuydVpyDqNgxePEkhZlwYplzN61n2T65i2kWCjo/tGjSKph5cKp4GO2vdbOmHSCH165KpVjh9XXN5KcOKmfH3Gb96jduq6fwe3eq3b9agFYl63XnUtnQOzBCBIG7HzpKM5YQpQywpZ8dz8fmzN1msITqad10USkdgRUHJovIwXPvrfaKMa9bHzrEInmeTKwil1l4NZSKPaJ2IAWSkgyRBZMh3w3G1seBJvA/+tDkCTJg8f0Iwx7812ypXa0GldkzZOzSdQIBgN7foeeeg9tbML9YCGBiejyQm+pckNyAEaiXvz2A9cJw50/rxL0jbXIKyZTgygQdSOJALEBisdogBRKrPrWLEZohQ219Rr6AuufmksyHSKlIvRcRcI6ufr1Rbg4hs5LiHPUiieXDD55H4zXb1Nz31zMY98Uv3ar8t1lmMmTJf7F8xr85Puyr26kTknFLJ4/FZmSQ9t7UAckquoUI6BCjHDg1RP86OF7SGWT2KiCdnbDbw9TXjgf11PGoARZQdIJ9rxxmtiX2VIqi1u9TakJkXSIxhVsy1q5XsVrt6iGCaTsiR//GnLobUyxgt26RsqFgu4aM5bWx5ugtwwKauRan8MaFAFRjAqqCihacUhgIJfF/OqQdD80WzN/foP48B85svwZ3rxUYu3ZUyTVwwsvY1b9tJqw4yeUV14l2Nkqtzwbt2frNDbKpgmjMTMbEAuqHnUK1iLGoNUe8LH6PAKoV9TF2FeOiX/hO+qeP0yh2Mve05dJ+gqtpUj8vufUrHpa+lpZjwbpnMQ7fqbBrRLclO+SluwIbW3rYHmsjEsLJhESjKqBrKLqECMoVOe2gJYVjSpQdvR+uUn9i2/z6/dPc0mESAJ2lqLqla5eP6eDdLVvSin+dAvrjnynfE48L5+5RKAZtMvhL5bQkkO0mq3/ZU0AuiuQVygJ/kKRbe+c4j8qPN12mv35rmsZq0wYMbBAXJng064/Kwt5ASj/431NhSkqKJu67yacU4s6D2IBxZ2LiNrz7Oq4TGggp8qXnlrBol8+K7vGNlw/gXx1t3R7fq523RqJ//CamqNHMVs3yqBfX+f/8rq+uHAxa8bWk5g7CkRQ53DvFTnQdpbKyAY2nT910zjlVZs1qK3DtK4Un8+ryWZlSJ+dG7N1mjbK6kUzsJUKWhJ2vP5PPMqGC+dI1dbdNI7v6lFTl5Pb8uwE2JnvEh+DehBr4GpEoJ6Wyx2fSA7gRuSGjGDVkSKiUHFgBK9U969BIhgqggEKURnf6xABK4J+Fn4WrrUKFXAhxls0XyLWa3NmGMMYxu3EfwEGTCR/9xceiwAAAABJRU5ErkJggg==',
+      hearts: 'data:image/png;base64,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',
+      tears: 'data:image/png;base64,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',
+    };
+
+    /**
+     * The rendered size of one face. The sprites are drawn on a 40px canvas;
+     * showing them at 20px reads clearly without crowding the timestamp.
+     */
+    const MOOD_SIZE = 20;
+
+    /**
+     * Render one face as an image tile.
+     *
+     * `image-rendering: pixelated` keeps the upscaled sprite's hard edges; the
+     * sheet was drawn as pixel art, so smoothing it would undo the artwork.
+     * @param mood - which face to draw.
+     */
+    function MoodFace(props) {
+      const src = MOOD_IMAGES[props.mood];
+      if (src === undefined) return null;
+      return h('img', {
+        src,
+        width: MOOD_SIZE,
+        height: MOOD_SIZE,
+        alt: '',
+        'aria-hidden': 'true',
+        draggable: 'false',
+        className: `wsm-mood wsm-mood-${props.mood}`,
+        style: { imageRendering: 'pixelated' },
+      });
+    }
+
+    /**
+     * Which face one conversation status calls for, or undefined to draw none.
+     *
+     * Only a conversation that is actually doing something — or has finished
+     * and not been looked at yet — gets a face. An idle row draws nothing: a
+     * column of identical resting faces added noise without saying anything,
+     * and the reader already has the title and timestamp to go on.
+     * @param status - the conversation's UI status, absent before it is known.
+     * @returns a face key, or undefined when the row should stay bare.
+     */
+    function moodOf(status) {
+      // Waiting on the reader is loud: sparks overhead.
+      if (status?.pendingInteraction !== undefined) return 'rays';
+      // A running conversation works with its flukes aflame.
+      if (status?.running === true) return 'fire';
+      // Finished and not yet looked at: the pleased heart variant.
+      if (status?.completionUnread === true) return 'hearts';
+      // Idle, archived-but-clean, and not-yet-known all render nothing; the
+      // reader can still pin a face with a mark if they want one there.
+      return undefined;
+    }
+
+    /**
+     * The mood badge one conversation row shows.
+     *
+     * The shipped row reserves its 16px leading cell for the state dot, and that
+     * cell admits a registered occupant only while the row is idle — a running
+     * row always gets the shipped dot instead. So the face rides the trailing
+     * strip, which every non-blank row draws and which hides itself while the
+     * row is hovered.
+     *
+     * @param props.sessionId - the row's conversation, used to read its status.
+     * @param props.useSessionStatus - the root status hook, supplied by the slot.
+     * @param props.moods - the preference record, from this plugin's inject face.
+     * @param props.t - the bound translate function.
+     */
+    function MoodBadge(props) {
+      const { sessionId, useSessionStatus, moods, marks, t } = props;
+      const enabled = useSyncExternalStore(moods.subscribe, moods.getSnapshot, moods.getSnapshot).enabled;
+      // A hand-set mark is a bookmark: while one is set it owns the slot, and
+      // clearing it hands the row back to whatever it is doing.
+      const marked = useSyncExternalStore(marks.subscribe, marks.getSnapshot, marks.getSnapshot).get(sessionId);
+      // The status source is a Map keyed by conversation; a selector keeps one
+      // row from re-rendering when a different conversation changes.
+      const status = useSessionStatus((statuses) => statuses.get(sessionId));
+      const mood = marked ?? moodOf(status);
+      // Only a working row cycles: it is the one state that lasts, and a face
+      // that never changed would read as a frozen icon.
+      const [tick, setTick] = React.useState(0);
+      React.useEffect(() => {
+        if (!enabled || marked !== undefined || mood !== 'working') return undefined;
+        const timer = setInterval(() => { setTick((value) => (value + 1) % 2); }, MOOD_FRAME_MS);
+        return () => { clearInterval(timer); };
+      }, [enabled, marked, mood]);
+      // Turning the feature off removes the mark, so the shipped dot returns;
+      // an idle conversation draws nothing at all.
+      if (!enabled || mood === undefined) return null;
+      const shown = mood === 'working' ? (tick === 0 ? 'working' : 'thinking') : mood;
+      return h('span', {
+        className: 'wsm-mood-cell',
+        'data-wsm-mood': shown,
+        title: t(`mood.${shown}.label`),
+        'aria-hidden': 'true',
+      }, h(MoodFace, { mood: shown }));
+    }
+
+    /** The mood-face switch in Settings → General. */
+    function MoodRow(props) {
+      const moods = props.moods;
+      const t = props.t;
+      const enabled = useSyncExternalStore(moods.subscribe, moods.getSnapshot, moods.getSnapshot).enabled;
+      return h('div', { className: 'wsb-row' }, [
+        h('div', { key: 'text', className: 'wsb-text' }, [
+          h('div', { key: 'title', className: 'wsb-title', id: 'wsm-settings-title' }, t('mood.title')),
+          h('div', { key: 'desc', className: 'wsb-desc', id: 'wsm-settings-desc' }, t('mood.description')),
+        ]),
+        h('button', {
+          key: 'switch',
+          type: 'button',
+          role: 'switch',
+          className: 'wsb-toggle',
+          'aria-checked': enabled ? 'true' : 'false',
+          'aria-labelledby': 'wsm-settings-title',
+          'aria-describedby': 'wsm-settings-desc',
+          onClick: () => { moods.setEnabled(!enabled); },
+        }, h('span', { key: 'track', className: 'wsb-track' },
+          h('span', { key: 'thumb', className: 'wsb-thumb' }))),
+      ]);
+    }
+
+    /** Read the mood-face preference, treating absent or unreadable storage as "on". */
+    function readMood() {
+      try {
+        const raw = localStorage.getItem(MOOD_KEY);
+        if (raw === null) return { enabled: true };
+        const parsed = JSON.parse(raw);
+        return { enabled: typeof parsed?.enabled === 'boolean' ? parsed.enabled : true };
+      } catch (_unavailable) {
+        return { enabled: true };
+      }
+    }
+
+    /** One preference record shared by the mood faces and their settings row. */
+    function createMoodStore() {
+      let record = readMood();
+      const listeners = new Set();
+      const publish = () => {
+        for (const listener of [...listeners]) listener();
+      };
+      return {
+        getSnapshot: () => record,
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => { listeners.delete(listener); };
+        },
+        setEnabled: (enabled) => {
+          if (record.enabled === enabled) return;
+          record = { ...record, enabled };
+          try {
+            localStorage.setItem(MOOD_KEY, JSON.stringify(record));
+          } catch (_unavailable) {
+            /* the switch still governs this page */
+          }
+          publish();
+        },
+      };
+    }
+
+    /** Read the stored conversation marks, ignoring absent or unreadable storage. */
+    function readMarks() {
+      try {
+        const raw = localStorage.getItem(MARK_KEY);
+        if (raw === null) return new Map();
+        const parsed = JSON.parse(raw);
+        const map = new Map();
+        for (const [id, mood] of Object.entries(parsed ?? {})) {
+          if (typeof id === 'string' && id !== '' && MOOD_MARK_KEYS.includes(mood)) map.set(id, mood);
+        }
+        return map;
+      } catch (_unavailable) {
+        return new Map();
+      }
+    }
+
+    /**
+     * One observable record of the hand-set conversation marks.
+     *
+     * A mark is a bookmark, not a status: it outranks the live face while set,
+     * and clearing it hands the row back to its live state.
+     */
+    function createMarkStore() {
+      let value = readMarks();
+      const listeners = new Set();
+      const publish = () => {
+        for (const listener of [...listeners]) listener();
+      };
+      return {
+        getSnapshot: () => value,
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => { listeners.delete(listener); };
+        },
+        /** Set or clear one conversation's mark; an unknown face clears it. */
+        set: (sessionId, mood) => {
+          const next = new Map(value);
+          if (mood === undefined || !MOOD_MARK_KEYS.includes(mood)) next.delete(sessionId);
+          else next.set(sessionId, mood);
+          value = next;
+          try {
+            // An empty record is removed rather than left as `{}`: "no marks"
+            // and "an object with no keys" should not both exist on disk.
+            if (next.size === 0) localStorage.removeItem(MARK_KEY);
+            else localStorage.setItem(MARK_KEY, JSON.stringify(Object.fromEntries(next)));
+          } catch (_unavailable) {
+            /* the mark still shows on this page */
+          }
+          publish();
+        },
+        /** Drop marks for conversations the catalog no longer lists. */
+        retain: (existing) => {
+          const kept = new Map([...value].filter(([id]) => existing.has(id)));
+          if (kept.size === value.size) return;
+          value = kept;
+          try {
+            if (kept.size === 0) localStorage.removeItem(MARK_KEY);
+            else localStorage.setItem(MARK_KEY, JSON.stringify(Object.fromEntries(kept)));
+          } catch (_unavailable) {
+            /* a stale mark is dropped from this page anyway */
+          }
+          publish();
+        },
+      };
+    }
+
+    /** The menu glyph for "mark this conversation": a small flag. */
+    function MarkIcon() {
+      return h('svg', {
+        width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none',
+        xmlns: 'http://www.w3.org/2000/svg', 'aria-hidden': 'true', focusable: 'false',
+      }, h('path', {
+        key: 'pole',
+        d: 'M3.6 2.2v11.6',
+        stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round',
+      }), h('path', {
+        key: 'flag',
+        d: 'M3.6 2.6h7.2l-1.6 2.4l1.6 2.4H3.6Z',
+        stroke: 'currentColor', strokeWidth: 1.2, strokeLinejoin: 'round', fill: 'none',
+      }));
+    }
+
+    /** The menu glyph for "clear the mark": the same flag, struck through. */
+    function MarkClearIcon() {
+      return h('svg', {
+        width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none',
+        xmlns: 'http://www.w3.org/2000/svg', 'aria-hidden': 'true', focusable: 'false',
+      }, h('path', {
+        key: 'pole',
+        d: 'M4.2 2.2v11.6',
+        stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', opacity: 0.6,
+      }), h('path', {
+        key: 'flag',
+        d: 'M4.2 2.6h6.6l-1.5 2.2l1.5 2.2H4.2Z',
+        stroke: 'currentColor', strokeWidth: 1.2, strokeLinejoin: 'round', fill: 'none', opacity: 0.6,
+      }), h('path', {
+        key: 'slash',
+        d: 'M2.6 13.4 13.4 2.6',
+        stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round',
+      }));
+    }
+
+    /**
+     * One menu entry's face glyph, drawn at menu-icon size in the face colour.
+     * @param props.mood - which face to draw.
+     */
+    function MarkIconFor(props) {
+      return h(MoodFace, { mood: props.mood });
+    }
+
     /** The width row in Settings → General: the remembered width, and a way back to the default. */
     function WidthRow(props) {
       const widths = props.widths;
@@ -664,6 +1039,9 @@ ${COMPOSER}.${OVER_CLASS} { outline-color: var(--dsw-alias-brand-primary); }
         // One pin record shared by the Workspace row menu and the reorder that
         // honours it.
         const pins = createPinStore();
+        const moods = createMoodStore();
+        // Hand-set conversation marks, shared by the row menu and the badge.
+        const marks = createMarkStore();
 
         // One stylesheet for the module's lifetime, covering all three
         // capabilities, not one per row render.
@@ -703,6 +1081,29 @@ ${COMPOSER}.${OVER_CLASS} { outline-color: var(--dsw-alias-brand-primary); }
           locale: NS,
           inject: () => ({ widths, t }),
         }, WidthRow));
+
+        ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+          name: 'settings.general.item',
+          id: 'workspace-sidebar-mood',
+          order: 21,
+          locale: NS,
+          inject: () => ({ moods, t }),
+        }, MoodRow));
+
+        /* ---------------------------------------------------------------- *
+         * 5. Session-row mood faces                                          *
+         * ---------------------------------------------------------------- */
+
+        // The faces ride the trailing strip: the leading cell admits an occupant
+        // only on an idle row, and the whole point is to cover the busy states
+        // the shipped dot already draws.
+        ctx.slots.inject('sidebar.session.row.trailing', () => ctx.slots.register({
+          name: 'sidebar.session.row.trailing',
+          id: 'workspace-sidebar-mood',
+          order: 10,
+          locale: NS,
+          inject: () => ({ moods, marks, t }),
+        }, MoodBadge));
 
         /* ---------------------------------------------------------------- *
          * 1. The automatic open                                              *
@@ -1169,6 +1570,57 @@ ${COMPOSER}.${OVER_CLASS} { outline-color: var(--dsw-alias-brand-primary); }
           });
         });
 
+        // A conversation can carry a hand-set face as a bookmark: the reader
+        // picks one from the row menu and it shows on the row until they pick
+        // "clear" or the conversation's live state takes the slot back. The
+        // mark is browser-local, like every other preference here.
+        // Each menu row shows the face it sets, so the reader picks by look
+        // rather than by word. One keyed icon registration per face.
+        for (const key of MOOD_MARK_KEYS) {
+          const Face = () => MarkIconFor({ mood: key });
+          ctx.slots.inject('contextMenu.icon', () =>
+            ctx.slots.register({ name: 'contextMenu.icon', key }, Face));
+        }
+        ctx.slots.inject('contextMenu.icon', () =>
+          ctx.slots.register({ name: 'contextMenu.icon', key: MARK_ICON_KEY }, MarkIcon));
+        ctx.slots.inject('contextMenu.icon', () =>
+          ctx.slots.register({ name: 'contextMenu.icon', key: MARK_CLEAR_ICON_KEY }, MarkClearIcon));
+        ctx.inject(['contextMenus'], (menuChild) => {
+          const contextMenus = menuChild.get('contextMenus');
+          if (contextMenus?.register === undefined) return undefined;
+          return contextMenus.register({
+            id: 'workspace-sidebar.mark',
+            target: 'session',
+            order: 400,
+            observe: () => [marks],
+            resolve: ({ sessionId }) => {
+              const marked = marks.getSnapshot().get(sessionId);
+              const rows = MOOD_MARK_KEYS.map((key) => ({
+                id: `mark:${key}`,
+                label: t(`mark.${key}`),
+                icon: { key },
+                run: () => { marks.set(sessionId, key); },
+              }));
+              return [
+                {
+                  id: 'mark',
+                  label: marked === undefined ? t('mark.apply') : t('mark.change'),
+                  icon: { key: MARK_ICON_KEY },
+                  children: rows,
+                },
+                ...(marked === undefined
+                  ? []
+                  : [{
+                    id: 'mark-clear',
+                    label: t('mark.clear'),
+                    icon: { key: MARK_CLEAR_ICON_KEY },
+                    run: () => { marks.set(sessionId, undefined); },
+                  }]),
+              ];
+            },
+          });
+        });
+
         ctx.inject(['workspaces', 'sessions'], (child) => {
           const workspaces = child.get('workspaces');
           const sessions = child.get('sessions');
@@ -1261,6 +1713,9 @@ ${COMPOSER}.${OVER_CLASS} { outline-color: var(--dsw-alias-brand-primary); }
             // A Workspace the registry no longer reports cannot stay pinned;
             // dropping it here also re-runs the pass, so the order catches up.
             pins.retain(current);
+            // A mark for a conversation that no longer exists would linger
+            // forever; prune it against the catalog's current membership.
+            marks.retain(new Set(Object.keys(list.byId ?? {})));
             const target = wantedOrder(items, list.byId, pins.getSnapshot());
             if (target.every((id, index) => id === current[index])) return;
             const signature = `${current.join(',')}=>${target.join(',')}`;

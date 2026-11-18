@@ -15,6 +15,11 @@ const filesId = '@deepseek-ai/dsh-client-ui-sidebar-files'
 const React = {
   createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
   useSyncExternalStore: (subscribe, get) => { void subscribe; return get() },
+  // Components are rendered as plain calls here, so hooks only need to read or
+  // record. Effects are captured rather than run: a running row starts an
+  // interval that would otherwise keep this process alive after the assertions.
+  useState: (initial) => [initial, () => {}],
+  useEffect: (callback) => { void callback },
 }
 
 /* ------------------------------------------------------------------ *
@@ -666,6 +671,146 @@ try {
   await tick(1700)
   assert.equal(storage.has('dsh.workspace-order-manual-pins.v1'), false,
     'a pin for a Workspace the registry no longer reports is pruned')
+
+  /* ---------------- 6. session-row mood faces ------------------------ */
+
+  const moodRegistration = registered.find((entry) =>
+    entry.options?.name === 'sidebar.session.row.trailing' && entry.options.id === 'workspace-sidebar-mood')
+  assert.ok(moodRegistration !== undefined, 'the mood badge is contributed to the row trailing strip')
+
+  const renderMood = (statusMap, enabled = true, mark) => {
+    const injected = moodRegistration.options.inject()
+    if (injected.moods.getSnapshot().enabled !== enabled) injected.moods.setEnabled(enabled)
+    // Marks live in their own record; set or clear it for this conversation.
+    if (mark === undefined) injected.marks.set('session-a', undefined)
+    else injected.marks.set('session-a', mark)
+    return moodRegistration.component({
+      ...injected,
+      sessionId: 'session-a',
+      useSessionStatus: (selector) => selector(statusMap),
+      t: (key) => key,
+    })
+  }
+  const moodOf = (tree) => tree?.props?.['data-wsm-mood']
+  const mapOf = (status) => (status === undefined ? new Map() : new Map([[sessionId, status]]))
+
+  // An idle conversation draws nothing at all: no face, no empty box.
+  assert.equal(renderMood(new Map()), null, 'a row with no status yet draws no face')
+  assert.equal(renderMood(mapOf({ running: false, pendingInteraction: undefined, completionUnread: false })), null,
+    'an idle row draws no face')
+  assert.equal(moodOf(renderMood(mapOf({ running: true, pendingInteraction: undefined, completionUnread: false }))),
+    'fire', 'a running row shows the working face, not the shipped spinner')
+  assert.equal(moodOf(renderMood(mapOf({ running: true, pendingInteraction: { kind: 'approval' }, completionUnread: false }))),
+    'rays', 'a pending interaction outranks running: that row wants the reader')
+  assert.equal(moodOf(renderMood(mapOf({ running: false, pendingInteraction: undefined, completionUnread: true }))),
+    'hearts', 'a finished-but-unread row shows the finished face')
+
+  // The rendered face is a real inline glyph with the row's own colour.
+  const workingTree = renderMood(mapOf({ running: true, pendingInteraction: undefined, completionUnread: false }))
+  const Face = workingTree.children[0].type
+  const glyph = Face(workingTree.children[0].props)
+  // The face is the cropped sprite, inlined as a data URL.
+  assert.equal(glyph.type, 'img')
+  assert.ok(glyph.props.src.startsWith('data:image/png;base64,'), 'the sprite is inlined, not fetched')
+  assert.equal(glyph.props.width, 20)
+  assert.equal(glyph.props.height, 20)
+  assert.equal(glyph.props.style.imageRendering, 'pixelated', 'pixel art is not smoothed')
+  assert.ok(glyph.props.className.includes('wsm-mood-fire'))
+
+  // Only a conversation that is doing something, or has finished unread, gets a
+  // face; every other state renders nothing at all.
+  const known = new Set(['calm', 'bubbles', 'rays', 'sleep', 'fire', 'hearts', 'tears'])
+  for (const [status, expected] of [
+    [undefined, undefined],
+    [{ running: false, pendingInteraction: undefined, completionUnread: false }, undefined],
+    [{ running: true, pendingInteraction: undefined, completionUnread: false }, 'fire'],
+    [{ running: false, pendingInteraction: { kind: 'question' }, completionUnread: false }, 'rays'],
+    [{ running: true, pendingInteraction: { kind: 'approval' }, completionUnread: false }, 'rays'],
+    [{ running: false, pendingInteraction: undefined, completionUnread: true }, 'hearts'],
+    [{ running: true, pendingInteraction: undefined, completionUnread: true }, 'fire'],
+  ]) {
+    const tree = renderMood(mapOf(status))
+    if (expected === undefined) {
+      assert.equal(tree, null, `status ${JSON.stringify(status)} draws no face`)
+      continue
+    }
+    const face = moodOf(tree)
+    assert.equal(face, expected, `status ${JSON.stringify(status)} shows ${expected}`)
+    assert.ok(known.has(face))
+  }
+
+  // A face never carries a background box: it must sit directly on the row.
+  const runningTree = renderMood(mapOf({ running: true, pendingInteraction: undefined, completionUnread: false }))
+  assert.equal(runningTree.props.style, undefined, 'the badge draws no background of its own')
+  assert.equal(runningTree.props.className, 'wsm-mood-cell')
+
+  // Switching the feature off removes the occupant entirely, so the shipped
+  // dot comes back instead of sitting beside a face.
+  assert.equal(renderMood(new Map(), false), null, 'turning the faces off renders nothing')
+
+  // The switch is a real switch in General settings, at its own id.
+  const moodRow = registered.find((entry) =>
+    entry.options?.name === 'settings.general.item' && entry.options.id === 'workspace-sidebar-mood')
+  assert.ok(moodRow !== undefined, 'the mood switch has its own General settings row')
+  assert.equal(moodRow.options.order, 21)
+  moodRow.options.inject().moods.setEnabled(true)
+  const moodSwitch = moodRow.component({ ...moodRow.options.inject(), t: (key) => key })
+    .children.flat(Infinity).find((child) => child?.type === 'button')
+  assert.equal(moodSwitch.props.role, 'switch')
+  assert.equal(moodSwitch.props['aria-checked'], 'true')
+  moodSwitch.props.onClick()
+  assert.equal(storage.get('dsh.session-row-mood.v1'), JSON.stringify({ enabled: false }),
+    'the switch writes its own preference')
+
+  /* ---------------- 7. conversation marks ---------------------------- */
+
+  const markContribution = menuContributions.get('session/workspace-sidebar.mark')
+  assert.ok(markContribution !== undefined, 'the conversation menu gains a mark action')
+  assert.equal(markContribution.order, 400)
+
+  // Unmarked: the action offers every face, with no "clear" row.
+  let markActions = markContribution.resolve({ sessionId: 'session-a', displayTitle: 'A' })
+  assert.equal(markActions.length, 1, 'an unmarked conversation offers only the mark menu')
+  assert.equal(markActions[0].label, 'mark.apply')
+  assert.equal(markActions[0].children.length, 7, 'all seven faces are offered')
+  assert.deepEqual(markActions[0].children.map((row) => row.id),
+    ['mark:calm', 'mark:bubbles', 'mark:rays', 'mark:sleep', 'mark:fire', 'mark:hearts', 'mark:tears'])
+
+  // Choosing one writes the mark and flips the menu to change/clear.
+  markActions[0].children.find((row) => row.id === 'mark:sleep').run()
+  assert.deepEqual(JSON.parse(storage.get('dsh.session-row-marks.v1')), { 'session-a': 'sleep' })
+  markActions = markContribution.resolve({ sessionId: 'session-a', displayTitle: 'A' })
+  assert.equal(markActions[0].label, 'mark.change')
+  assert.equal(markActions.length, 2, 'a marked conversation can clear it')
+  assert.equal(markActions[1].id, 'mark-clear')
+
+  // The mark owns the row slot, even while the conversation is idle.
+  const markedTree = renderMood(new Map(), true, 'sleep')
+  assert.equal(moodOf(markedTree), 'sleep', 'a mark shows on an otherwise idle row')
+
+  // ...and outranks the live state while the conversation runs.
+  const runningMarked = renderMood(mapOf({ running: true, pendingInteraction: undefined, completionUnread: false }), true, 'calm')
+  assert.equal(moodOf(runningMarked), 'calm', 'a mark outranks the live face')
+
+  // Clearing hands the row back to its live state.
+  markActions[1].run()
+  assert.equal(storage.has('dsh.session-row-marks.v1'), false, 'clearing removes the record')
+  // Render without re-setting a mark: the record is now empty, so an idle row
+  // must draw nothing.
+  const clearedInjected = moodRegistration.options.inject()
+  assert.equal(clearedInjected.marks.getSnapshot().get('session-a'), undefined)
+  assert.equal(moodRegistration.component({
+    ...clearedInjected, sessionId: 'session-a', useSessionStatus: () => undefined, t: (key) => key,
+  }), null, 'once cleared, an idle row draws nothing')
+
+  // A mark for a conversation the catalog no longer lists is pruned.
+  const markAgain = markContribution.resolve({ sessionId: 'session-gone', displayTitle: 'Gone' })
+  markAgain[0].children.find((row) => row.id === 'mark:tears').run()
+  assert.ok(storage.get('dsh.session-row-marks.v1').includes('session-gone'))
+  workspaceList.set({ ...workspaceList.getSnapshot() })
+  await tick(1700)
+  assert.equal(storage.has('dsh.session-row-marks.v1'), false,
+    'a mark for a conversation that no longer exists is pruned')
 
   /* ---------------- unload ------------------------------------------- */
 
