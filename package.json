@@ -1,6 +1,6 @@
 {
   "name": "emoji-workspace-sidebar",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "type": "module",
   "description": "切换对话时自动显示该工作区的文件目录，记住右侧栏宽度，支持把文件拖进输入框变成 @ 引用，按最近对话排序左侧工作区并支持手动置顶，以及在对话行显示状态表情。",
   "license": "MIT",

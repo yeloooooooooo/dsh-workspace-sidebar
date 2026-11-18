@@ -267,8 +267,14 @@ ${COMPOSER}.${OVER_CLASS} { outline-color: var(--dsw-alias-brand-primary); }
   background: var(--dsw-alias-bg-overlay);
   border: 1px solid var(--dsw-alias-border-l2);
 }
-.wsm-mood-cell{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:none;line-height:0}
+.wsm-mood-cell{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:none;line-height:0}
 .wsm-mood{display:block;overflow:visible}
+/* A workspace row's face sits with the title, before the action strip. */
+.wsm-ws-mood{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:none;margin-left:4px;line-height:0}
+/* A conversation row's face owns its leading cell; the shipped dot steps
+   aside while one is shown so the row never carries two indicators. */
+.wsm-row-face{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;line-height:0}
+[data-wsm-dot-hidden]{display:none !important}
 `;
 
     /* ------------------------------------------------------------------ *
@@ -631,6 +637,96 @@ ${COMPOSER}.${OVER_CLASS} { outline-color: var(--dsw-alias-brand-primary); }
     }
 
     /**
+    /**
+     * Build one face image for DOM written outside React.
+     *
+     * Session rows render the `MoodFace` component; a workspace row is patched
+     * into the shipped markup by hand, so it needs the same artwork built
+     * directly. The image carries the sprite source, the pixelated hint and the
+     * size, which a styled span alone does not.
+     * @param mood - which face to draw.
+     * @returns an `<img>` carrying that face.
+     */
+    function makeFaceImage(mood) {
+      const img = document.createElement('img');
+      img.className = 'wsm-mood wsm-mood-' + mood;
+      img.setAttribute('data-wsm-ws-face', '');
+      img.setAttribute('alt', '');
+      img.setAttribute('aria-hidden', 'true');
+      img.setAttribute('draggable', 'false');
+      img.width = MOOD_SIZE;
+      img.height = MOOD_SIZE;
+      // `pixelated` keeps the upscaled sprite's hard edges; a DOM without a
+      // style object simply renders it smoothly instead of failing.
+      if (img.style !== undefined) img.style.imageRendering = 'pixelated';
+      const src = MOOD_IMAGES[mood];
+      if (src !== undefined) img.src = src;
+      return img;
+    }
+
+    /**
+     * A shared mirror of the conversation status map.
+     *
+     * The status source is reachable only through the slot-injected
+     * `useSessionStatus` hook, so no service exposes it to `apply`. The session
+     * row occupants already hold that hook, so each one publishes the map it
+     * sees here, and the workspace rows read from this record instead. The
+     * snapshot is replaced only when a value actually differs, so publishing on
+     * every render does not spin the subscribers.
+     */
+    function createStatusMirror() {
+      let value = new Map();
+      const listeners = new Set();
+      const publish = () => {
+        for (const listener of [...listeners]) listener();
+      };
+      return {
+        getSnapshot: () => value,
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => { listeners.delete(listener); };
+        },
+        /** Adopt a status map when its contents differ from the held one. */
+        publish: (next) => {
+          if (next === undefined || next === null || next === value) return;
+          if (next.size === value.size) {
+            let same = true;
+            for (const [id, status] of next) {
+              const held = value.get(id);
+              if (held === undefined
+                || held.running !== status.running
+                || held.pendingInteraction !== status.pendingInteraction
+                || held.completionUnread !== status.completionUnread) {
+                same = false;
+                break;
+              }
+            }
+            if (same) return;
+          }
+          value = next;
+          publish();
+        },
+      };
+    }
+
+    /**
+     * A headless occupant that keeps the shared status mirror current.
+     *
+     * It renders nothing: its only job is to be mounted on every conversation
+     * row so the status source is readable even while the leading cell shows
+     * the host's own indicator.
+     * @param props.useSessionStatus - the root status hook, supplied by the slot.
+     * @param props.statuses - the mirror to publish into.
+     */
+    function StatusTap(props) {
+      props.useSessionStatus((statuses) => {
+        props.statuses?.publish?.(statuses);
+        return undefined;
+      });
+      return null;
+    }
+
+    /**
      * The mood badge one conversation row shows.
      *
      * The shipped row reserves its 16px leading cell for the state dot, and that
@@ -645,14 +741,19 @@ ${COMPOSER}.${OVER_CLASS} { outline-color: var(--dsw-alias-brand-primary); }
      * @param props.t - the bound translate function.
      */
     function MoodBadge(props) {
-      const { sessionId, useSessionStatus, moods, marks, t } = props;
+      const { sessionId, useSessionStatus, moods, marks, statuses: mirror, t } = props;
       const enabled = useSyncExternalStore(moods.subscribe, moods.getSnapshot, moods.getSnapshot).enabled;
       // A hand-set mark is a bookmark: while one is set it owns the slot, and
       // clearing it hands the row back to whatever it is doing.
       const marked = useSyncExternalStore(marks.subscribe, marks.getSnapshot, marks.getSnapshot).get(sessionId);
       // The status source is a Map keyed by conversation; a selector keeps one
       // row from re-rendering when a different conversation changes.
-      const status = useSessionStatus((statuses) => statuses.get(sessionId));
+      const status = useSessionStatus((statuses) => {
+        // Publish the whole map on the way through: the workspace rows need
+        // it, and this is the only place the status source is reachable.
+        mirror?.publish?.(statuses);
+        return statuses.get(sessionId);
+      });
       const mood = marked ?? moodOf(status);
       // Only a working row cycles: it is the one state that lasts, and a face
       // that never changed would read as a frozen icon.
@@ -662,9 +763,11 @@ ${COMPOSER}.${OVER_CLASS} { outline-color: var(--dsw-alias-brand-primary); }
         const timer = setInterval(() => { setTick((value) => (value + 1) % 2); }, MOOD_FRAME_MS);
         return () => { clearInterval(timer); };
       }, [enabled, marked, mood]);
-      // Turning the feature off removes the mark, so the shipped dot returns;
-      // an idle conversation draws nothing at all.
+      // Turning the feature off restores the shipped dot; an idle conversation
+      // draws nothing at all, so the cell stays empty as the host left it.
       if (!enabled || mood === undefined) return null;
+      // A running row cycles between the two working faces so the cell reads as
+      // live rather than as a frozen icon.
       const shown = mood === 'working' ? (tick === 0 ? 'working' : 'thinking') : mood;
       return h('span', {
         className: 'wsm-mood-cell',
@@ -1043,6 +1146,8 @@ ${COMPOSER}.${OVER_CLASS} { outline-color: var(--dsw-alias-brand-primary); }
         // honours it.
         const pins = createPinStore();
         const moods = createMoodStore();
+        // Filled by the session-row occupants, read by the workspace rows.
+        const statuses = createStatusMirror();
         // Hand-set conversation marks, shared by the row menu and the badge.
         const marks = createMarkStore();
 
@@ -1097,16 +1202,234 @@ ${COMPOSER}.${OVER_CLASS} { outline-color: var(--dsw-alias-brand-primary); }
          * 5. Session-row mood faces                                          *
          * ---------------------------------------------------------------- */
 
-        // The faces ride the trailing strip: the leading cell admits an occupant
-        // only on an idle row, and the whole point is to cover the busy states
-        // the shipped dot already draws.
+        // The faces sit in the leading cell, before the title, so a row reads as
+        // "face, name" the way the workspace rows do.
+        //
+        // That cell is the shipped status dot's seat: its slot admits a
+        // registered occupant only while the row is idle, and a busy row swaps
+        // the whole cell for the shipped dot. So the face is painted from the
+        // DOM instead of registered as a slot occupant — that covers every
+        // state, and the shipped dot is hidden while a face is shown.
+        ctx.slots.inject('sidebar.session.row.leading', () => ctx.slots.register({
+          name: 'sidebar.session.row.leading',
+          id: 'workspace-sidebar-mood',
+          order: 5,
+          locale: NS,
+          inject: () => ({ moods, marks, statuses, t }),
+        }, MoodBadge));
+
+        // The leading slot only mounts on an idle row, so it cannot be the only
+        // observer of the status source: the moment a conversation starts
+        // working, the occupant unmounts and the shared mirror stops hearing
+        // about it. The trailing strip mounts on every non-blank row, so a
+        // headless occupant there keeps the mirror current. It renders nothing.
         ctx.slots.inject('sidebar.session.row.trailing', () => ctx.slots.register({
           name: 'sidebar.session.row.trailing',
-          id: 'workspace-sidebar-mood',
-          order: 10,
+          id: 'workspace-sidebar-mood-status',
+          order: 90,
           locale: NS,
-          inject: () => ({ moods, marks, t }),
-        }, MoodBadge));
+          inject: () => ({ statuses }),
+        }, StatusTap));
+
+        /* ---------------------------------------------------------------- *
+         * 6. Workspace rows show the mood of their conversations             *
+         * ---------------------------------------------------------------- */
+
+        // A workspace row offers no slot to fill, so this writes into the row
+        // the shipped browser already renders (`data-row-key="workspace:<id>"`).
+        // It only ever marks rows it created, and removes every mark again on
+        // teardown, so the shipped markup is left exactly as it was found.
+        //
+        // Rule: a workspace shows the face of its most urgent conversation,
+        // ranked the way a conversation row already ranks them (needs you >
+        // working > finished-unread); a hand-set mark outranks all of that.
+        // When no conversation under the workspace carries a face, the
+        // workspace carries none either.
+        ctx.inject(['sessions', 'workspaces'], (child) => {
+          const sessionList = child.get('sessions')?.list;
+          const workspaceList = child.get('workspaces')?.list;
+          if (sessionList?.getSnapshot === undefined || workspaceList?.getSnapshot === undefined) return undefined;
+
+          let disposed = false;
+          let frame = null;
+          let observer = null;
+          const subscriptions = [];
+
+          const own = (source, listener) => {
+            if (typeof source?.subscribe !== 'function') return;
+            const off = source.subscribe(listener);
+            subscriptions.push(typeof off === 'function' ? off : () => {});
+          };
+
+          /** Urgency order, highest first. */
+          const RANK = { rays: 3, fire: 2, hearts: 1 };
+          const FACE_MARK = 'data-wsm-ws-mood';
+
+          /** The face one workspace should show, or undefined for none. */
+          const faceOf = (sessionIds, statusMap, pinned) => {
+            if (sessionIds === undefined || sessionIds.length === 0) return undefined;
+            let best;
+            let bestRank = -1;
+            for (const id of sessionIds) {
+              const marked = pinned.get(id);
+              // A bookmark is the reader's explicit choice; it wins outright.
+              if (marked !== undefined) return marked;
+              const mood = moodOf(statusMap?.get(id));
+              if (mood === undefined) continue;
+              const rank = RANK[mood] ?? 0;
+              if (rank > bestRank) { bestRank = rank; best = mood; }
+            }
+            return best;
+          };
+
+          /** Write one face onto a rendered row, or take it away. */
+          const paint = (row, mood) => {
+            const existing = row.querySelector(':scope > [' + FACE_MARK + ']');
+            if (mood === undefined) {
+              if (existing !== null) existing.remove();
+              return;
+            }
+            if (existing === null) {
+              const holder = document.createElement('span');
+              holder.setAttribute(FACE_MARK, mood);
+              holder.setAttribute('aria-hidden', 'true');
+              holder.className = 'wsm-ws-mood';
+              holder.appendChild(makeFaceImage(mood));
+              // Sit before the action strip so the face lines up with the title.
+              const actions = row.querySelector(':scope > span:last-child');
+              if (actions === null || actions === undefined) row.appendChild(holder);
+              else row.insertBefore(holder, actions);
+              return;
+            }
+            if (existing.getAttribute(FACE_MARK) !== mood) {
+              existing.setAttribute(FACE_MARK, mood);
+              const face = existing.querySelector('[data-wsm-ws-face]');
+              if (face !== null) {
+                face.src = MOOD_IMAGES[mood] ?? '';
+                face.className = 'wsm-mood wsm-mood-' + mood;
+              }
+            }
+          };
+
+          /**
+           * Write the face into each conversation row's leading cell.
+           *
+           * The shipped cell holds the status dot; while a face is shown the
+           * dot is hidden so the row never carries two indicators. A row with
+           * no face gets its cell back exactly as the host rendered it.
+           */
+          const paintSessionRows = (statusMap, pinned) => {
+            for (const row of document.querySelectorAll('[data-row-key^="session:"]')) {
+              const key = row.getAttribute('data-row-key') ?? '';
+              const id = key.slice('session:'.length);
+              const cell = row.querySelector(':scope > span');
+              if (cell === null) continue;
+              const marked = pinned.get(id);
+              const mood = marked ?? moodOf(statusMap?.get(id));
+              let face = cell.querySelector('[data-wsm-row-face]');
+              if (mood === undefined) {
+                if (face !== null) face.remove();
+                // Hand the cell back to whatever the host rendered.
+                for (const sibling of [...cell.children]) {
+                  sibling.removeAttribute('data-wsm-dot-hidden');
+                }
+                continue;
+              }
+              if (face === null) {
+                const holder = document.createElement('span');
+                holder.className = 'wsm-row-face';
+                holder.setAttribute('data-wsm-row-face', mood);
+                holder.setAttribute('aria-hidden', 'true');
+                holder.appendChild(makeFaceImage(mood));
+                cell.insertBefore(holder, cell.firstChild);
+                // Re-read: the inserted node, not the earlier null, is what the
+                // hide loop must leave alone.
+                face = holder;
+              } else if (face.getAttribute('data-wsm-row-face') !== mood) {
+                face.setAttribute('data-wsm-row-face', mood);
+                const img = face.querySelector('[data-wsm-ws-face]');
+                if (img !== null) img.src = MOOD_IMAGES[mood] ?? '';
+              }
+              // Own the cell: everything except the face steps aside. A busy
+              // row's shipped spinner has no stable class, so hiding siblings
+              // is the reliable way to keep two indicators from sharing it.
+              for (const sibling of [...cell.children]) {
+                if (sibling === face) {
+                  sibling.removeAttribute('data-wsm-dot-hidden');
+                  continue;
+                }
+                sibling.setAttribute('data-wsm-dot-hidden', '');
+              }
+            }
+          };
+
+          /** Repaint every rendered workspace row from the current state. */
+          const repaintWorkspaceRows = () => {
+            frame = null;
+            if (disposed || typeof document === 'undefined') return;
+            // A document without querySelectorAll is not a browser DOM.
+            if (typeof document.querySelectorAll !== 'function') return;
+            const list = sessionList.getSnapshot();
+            if (list?.phase !== 'ready') return;
+            const statusMap = statuses.getSnapshot();
+            const pinned = marks.getSnapshot();
+            const items = workspaceList.getSnapshot()?.items ?? [];
+            // Conversation rows first: the leading slot only mounts on an idle
+            // row, so every busy row needs its face written here instead.
+            paintSessionRows(statusMap, pinned);
+            for (const row of document.querySelectorAll('[data-row-key^="workspace:"]')) {
+              const key = row.getAttribute('data-row-key') ?? '';
+              const id = key.slice('workspace:'.length);
+              const workspace = items.find((item) => item.workspaceId === id);
+              if (workspace === undefined) continue;
+              paint(row, faceOf(workspace.sessionIds, statusMap, pinned));
+            }
+          };
+
+          // One paint per frame: a running turn advances status often, and each
+          // change would otherwise touch every workspace row.
+          const schedule = () => {
+            if (disposed || frame !== null) return;
+            if (typeof requestAnimationFrame !== 'function') { repaintWorkspaceRows(); return; }
+            // Mark pending before queueing. The callback clears it, and a
+            // synchronous rAF (as test doubles use) must not have its result
+            // written back over that null or the guard sticks closed forever.
+            frame = -1;
+            const scheduled = requestAnimationFrame(() => {
+              frame = null;
+              repaintWorkspaceRows();
+            });
+            if (frame !== null) frame = scheduled;
+          };
+
+          own(sessionList, schedule);
+          own(workspaceList, schedule);
+          own(statuses, schedule);
+          own(marks, schedule);
+
+          // Rows mount and unmount as groups expand or collapse, and no store
+          // reports that; a child-list observer catches the new rows.
+          if (typeof MutationObserver === 'function' && typeof document !== 'undefined') {
+            observer = new MutationObserver(() => { schedule(); });
+            observer.observe(document.body, { childList: true, subtree: true });
+          }
+          schedule();
+
+          return () => {
+            disposed = true;
+            if (frame !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);
+            frame = null;
+            observer?.disconnect();
+            observer = null;
+            for (const off of subscriptions.reverse()) {
+              try { off(); } catch (_unavailable) { /* released already */ }
+            }
+            subscriptions.length = 0;
+            // Leave no trace behind on the shipped markup.
+            if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return;
+            for (const holder of document.querySelectorAll('[' + FACE_MARK + ']')) holder.remove();
+          };
+        });
 
         /* ---------------------------------------------------------------- *
          * 1. The automatic open                                              *

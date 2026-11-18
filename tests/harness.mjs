@@ -73,7 +73,41 @@ class FakeElement extends FakeNode {
     }
     return null
   }
-  querySelector() { return null }
+  /**
+   * Depth-first search over descendants. Supports `[attr]`, `[attr="v"]`,
+   * `[attr^="v"]` (used for data-row-key), a bare tag name, and a
+   * `:scope > ` prefix that restricts the search to direct children.
+   */
+  _find(selector) {
+    const scoped = selector.startsWith(':scope > ')
+    const rest = scoped ? selector.slice(':scope > '.length) : selector
+    const attr = /^\[([^\]=^]+)(\^=|=)?(?:"([^"]*)")?\]$/.exec(rest)
+    const match = (node) => {
+      if (!(node instanceof FakeElement)) return false
+      if (attr !== null) {
+        const value = node.getAttribute(attr[1])
+        if (value === null) return false
+        if (attr[2] === undefined) return true
+        return attr[2] === '^=' ? value.startsWith(attr[3]) : value === attr[3]
+      }
+      return node.tagName === rest.toUpperCase()
+    }
+    const hits = []
+    if (scoped) {
+      for (const child of this.childNodes ?? []) if (match(child)) hits.push(child)
+      return hits
+    }
+    const walk = (node) => {
+      for (const child of node.childNodes ?? []) {
+        if (match(child)) hits.push(child)
+        walk(child)
+      }
+    }
+    walk(this)
+    return hits
+  }
+  querySelector(selector) { return this._find(selector)[0] ?? null }
+  querySelectorAll(selector) { return this._find(selector) }
   appendChild(child) { child.parentNode = this; this.childNodes.push(child); return child }
   remove() {
     if (this.parentNode === null) return
@@ -87,6 +121,9 @@ const listeners = new Map()
 const documentElement = new FakeElement('html')
 const body = new FakeElement('body')
 body.parentNode = documentElement
+// Link both directions: a search from the document root must reach the
+// body, so it has to be one of the root's children, not just point at it.
+documentElement.childNodes.push(body)
 const document = {
   body,
   documentElement,
@@ -99,6 +136,10 @@ const document = {
   removeEventListener: (type, listener) => {
     listeners.get(type)?.delete(listener)
   },
+  // The painter queries the whole document, so the document itself needs the
+  // same search surface its elements have.
+  querySelector: (selector) => documentElement.querySelector(selector),
+  querySelectorAll: (selector) => documentElement.querySelectorAll(selector),
 }
 const fire = (type, event) => { for (const listener of listeners.get(type) ?? []) listener(event) }
 
@@ -675,8 +716,8 @@ try {
   /* ---------------- 6. session-row mood faces ------------------------ */
 
   const moodRegistration = registered.find((entry) =>
-    entry.options?.name === 'sidebar.session.row.trailing' && entry.options.id === 'workspace-sidebar-mood')
-  assert.ok(moodRegistration !== undefined, 'the mood badge is contributed to the row trailing strip')
+    entry.options?.name === 'sidebar.session.row.leading' && entry.options.id === 'workspace-sidebar-mood')
+  assert.ok(moodRegistration !== undefined, 'the mood badge is contributed to the row leading cell')
 
   const renderMood = (statusMap, enabled = true, mark) => {
     const injected = moodRegistration.options.inject()
@@ -811,6 +852,89 @@ try {
   await tick(1700)
   assert.equal(storage.has('dsh.session-row-marks.v1'), false,
     'a mark for a conversation that no longer exists is pruned')
+
+  /* ---------------- 8. workspace rows mirror their conversations ----- */
+
+  // Build workspace rows the way the shipped browser renders them: a
+  // `data-row-key="workspace:<id>"` element with a title block and an action
+  // strip, which is what the painter looks for.
+  const makeWorkspaceRow = (id) => {
+    const row = new FakeElement('div', { 'data-row-key': `workspace:${id}` })
+    const text = new FakeElement('span')
+    text.appendChild(new FakeElement('span'))
+    row.appendChild(text)
+    row.appendChild(new FakeElement('span'))
+    body.appendChild(row)
+    return row
+  }
+  const rowA = makeWorkspaceRow('ws-a')
+  const rowB = makeWorkspaceRow('ws-b')
+
+  // The painter reads the status map from the mirror the session rows fill, so
+  // drive it exactly the way a rendered occupant does.
+  const badgeReg = registered.find((r) => r.options?.id === 'workspace-sidebar-mood'
+    && r.options.name === 'sidebar.session.row.leading')
+  const publishStatuses = (entries) => {
+    const injected = badgeReg.options.inject()
+    const map = new Map(Object.entries(entries))
+    badgeReg.component({
+      ...injected,
+      sessionId: 'session-a',
+      useSessionStatus: (sel) => sel(map),
+      t: (k) => k,
+    })
+  }
+  const faceIn = (row) => {
+    const holder = row.querySelector('[data-wsm-ws-mood]')
+    return holder === null ? undefined : holder.getAttribute('data-wsm-ws-mood')
+  }
+
+  workspaceList.set({
+    ...workspaceList.getSnapshot(),
+    phase: 'ready',
+    items: [
+      { workspaceId: 'ws-a', path: 'D:/a', title: 'A', sessionIds: ['session-a'], createdAt: '', updatedAt: '' },
+      { workspaceId: 'ws-b', path: 'D:/b', title: 'B', sessionIds: ['session-b'], createdAt: '', updatedAt: '' },
+    ],
+  })
+  sessionList.set(summaries({ 'session-a': 900, 'session-b': 800 }))
+  await tick(120)
+
+  // A workspace holding a running conversation shows the working face; one
+  // holding nothing active stays bare.
+  publishStatuses({ 'session-a': { running: true, pendingInteraction: undefined, completionUnread: false } })
+  await tick(120)
+  assert.equal(faceIn(rowA), 'fire', 'a running conversation lights its workspace')
+  assert.equal(faceIn(rowB), undefined, 'a quiet workspace stays bare')
+
+  // Waiting on the reader outranks a merely running sibling.
+  publishStatuses({
+    'session-a': { running: true, pendingInteraction: undefined, completionUnread: false },
+    'session-b': { running: false, pendingInteraction: { kind: 'approval' }, completionUnread: false },
+  })
+  await tick(120)
+  assert.equal(faceIn(rowB), 'rays', 'a workspace awaiting confirmation shows the urgent face')
+
+  // Everything settles: both faces are removed.
+  publishStatuses({
+    'session-a': { running: false, pendingInteraction: undefined, completionUnread: false },
+    'session-b': { running: false, pendingInteraction: undefined, completionUnread: false },
+  })
+  await tick(120)
+  assert.equal(faceIn(rowA), undefined, 'an idle workspace clears its face')
+  assert.equal(faceIn(rowB), undefined, 'an idle workspace clears its face')
+
+  // A mark shows on the workspace even when nothing is running.
+  const markMenu = menuContributions.get('session/workspace-sidebar.mark')
+  markMenu.resolve({ sessionId: 'session-a', displayTitle: 'A' })[0].children
+    .find((row) => row.id === 'mark:sleep').run()
+  await tick(120)
+  assert.equal(faceIn(rowA), 'sleep', "a reader's mark reaches the workspace row")
+
+  // Clearing it hands the workspace back to its idle state.
+  markMenu.resolve({ sessionId: 'session-a', displayTitle: 'A' })[1].run()
+  await tick(120)
+  assert.equal(faceIn(rowA), undefined, 'clearing the mark clears the workspace face')
 
   /* ---------------- unload ------------------------------------------- */
 
