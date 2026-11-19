@@ -1,5 +1,7 @@
 # 工作区侧栏（emoji-workspace-sidebar）
 
+[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/yeloooooooooo/dsh-workspace-sidebar)
+
 当前版本：1.4.0
 
 一个 DeepSeek Harness（以下简称 DSH）插件包。它把右侧栏文件树和左侧工作区列表的使用流程整理到一起，包含六项能力：切换对话时自动显示该对话工作区的文件目录、记住拖动后的右侧栏宽度、把文件树里的文件或文件夹拖进输入框变成 `@` 引用、按最近对话时间排列左侧工作区并支持手动置顶、在对话行显示状态表情并支持手动标记，以及把工作区下各对话的状态汇总显示在该工作区行上。
